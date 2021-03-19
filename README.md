@@ -17,7 +17,7 @@ Example promtail config:
 ```
 
 clients:
-  - url: https://localhost:3100/loki/api/v1/push  
+  - url: http://localhost:3100/loki/api/v1/push  
 
 scrape_configs:
   - job_name: system
