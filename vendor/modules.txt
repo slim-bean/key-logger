@@ -3,6 +3,8 @@ github.com/BurntSushi/xgb
 github.com/BurntSushi/xgb/shm
 github.com/BurntSushi/xgb/xinerama
 github.com/BurntSushi/xgb/xproto
+# github.com/dustin/go-humanize v1.0.0
+github.com/dustin/go-humanize
 # github.com/gen2brain/shm v0.0.0-20210511105953-083dbc7d9d83
 ## explicit
 github.com/gen2brain/shm
@@ -15,14 +17,65 @@ github.com/go-logfmt/logfmt
 # github.com/gonutz/w32/v2 v2.2.0
 ## explicit
 github.com/gonutz/w32/v2
+# github.com/google/uuid v1.1.1
+github.com/google/uuid
+# github.com/json-iterator/go v1.1.10
+github.com/json-iterator/go
 # github.com/kbinani/screenshot v0.0.0-20210326165202-b96eb3309bb0
 ## explicit
 github.com/kbinani/screenshot
 github.com/kbinani/screenshot/internal/util
 github.com/kbinani/screenshot/internal/xwindow
+# github.com/klauspost/cpuid v1.3.1
+github.com/klauspost/cpuid
 # github.com/lxn/win v0.0.0-20210218163916-a377121e959e
 github.com/lxn/win
+# github.com/minio/md5-simd v1.1.0
+github.com/minio/md5-simd
+# github.com/minio/minio-go/v7 v7.0.11
+## explicit
+github.com/minio/minio-go/v7
+github.com/minio/minio-go/v7/pkg/credentials
+github.com/minio/minio-go/v7/pkg/encrypt
+github.com/minio/minio-go/v7/pkg/lifecycle
+github.com/minio/minio-go/v7/pkg/notification
+github.com/minio/minio-go/v7/pkg/replication
+github.com/minio/minio-go/v7/pkg/s3utils
+github.com/minio/minio-go/v7/pkg/set
+github.com/minio/minio-go/v7/pkg/signer
+github.com/minio/minio-go/v7/pkg/sse
+github.com/minio/minio-go/v7/pkg/tags
+# github.com/minio/sha256-simd v0.1.1
+github.com/minio/sha256-simd
+# github.com/mitchellh/go-homedir v1.1.0
+github.com/mitchellh/go-homedir
+# github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
+github.com/modern-go/concurrent
+# github.com/modern-go/reflect2 v1.0.1
+github.com/modern-go/reflect2
+# github.com/rs/xid v1.2.1
+github.com/rs/xid
+# github.com/sirupsen/logrus v1.8.1
+github.com/sirupsen/logrus
+# golang.org/x/crypto v0.0.0-20200709230013-948cd5f35899
+golang.org/x/crypto/argon2
+golang.org/x/crypto/blake2b
+# golang.org/x/image v0.0.0-20210622092929-e6eecd499c2c
+## explicit
+# golang.org/x/net v0.0.0-20200707034311-ab3426394381
+golang.org/x/net/http/httpguts
+golang.org/x/net/idna
+golang.org/x/net/publicsuffix
 # golang.org/x/sys v0.0.0-20210616094352-59db8d763f22
 ## explicit
+golang.org/x/sys/cpu
 golang.org/x/sys/internal/unsafeheader
+golang.org/x/sys/unix
 golang.org/x/sys/windows
+# golang.org/x/text v0.3.6
+golang.org/x/text/secure/bidirule
+golang.org/x/text/transform
+golang.org/x/text/unicode/bidi
+golang.org/x/text/unicode/norm
+# gopkg.in/ini.v1 v1.57.0
+gopkg.in/ini.v1
