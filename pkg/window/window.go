@@ -147,9 +147,12 @@ func (w *Window) getLastInputInfoLoop() {
 }
 
 func (w *Window) logLastInputInfoLoop() {
+	sendInterval := 5 * time.Second
+	idleTime := 5 * time.Minute
 	for {
 		idle := atomic.LoadUint32(&w.idleTime)
-		if int64(idle) < (30 * time.Second).Milliseconds() {
+		start := time.Now()
+		if int64(idle) < idleTime.Milliseconds() {
 			w.wmtx.Lock()
 			win := w.activeWindowName
 			proc := w.activeProcess
@@ -176,7 +179,12 @@ func (w *Window) logLastInputInfoLoop() {
 			}
 			level.Info(w.logger).Log("ts", time.Now(), "type", "active-window", "window", win, "process", proc)
 		}
-		time.Sleep(5 * time.Second)
+		// Adjust the sleep based on how long we sent processing to make sure we send as close to every 5 seconds as possible
+		executionTime := time.Since(start)
+		if executionTime > sendInterval {
+			executionTime = sendInterval
+		}
+		time.Sleep(sendInterval - executionTime)
 	}
 
 }

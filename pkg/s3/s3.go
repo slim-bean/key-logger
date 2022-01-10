@@ -70,7 +70,12 @@ func (s *S3) run() {
 }
 
 func (s *S3) Send(image *model.Image) {
-	s.sendChan <- image
+	select {
+	case s.sendChan <- image:
+	default:
+		fmt.Println("image send queue is full! not sending message.")
+	}
+
 }
 
 func (s *S3) GetBucket() string {
