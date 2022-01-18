@@ -159,7 +159,7 @@ func (w *Window) logLastInputInfoLoop() {
 			bounds := w.bounds
 			w.wmtx.Unlock()
 			im := &model.Image{}
-			if bounds.Dx() > 0 && bounds.Dy() > 0 {
+			if w.s3 != nil && bounds.Dx() > 0 && bounds.Dy() > 0 {
 				img, err := screenshot.CaptureRect(bounds)
 				if err != nil {
 					panic(err)

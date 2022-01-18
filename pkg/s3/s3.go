@@ -26,6 +26,9 @@ type S3 struct {
 }
 
 func New(endpoint, accessKeyID, secretAccessKey, bucketName string) *S3 {
+	if endpoint == "" {
+		return nil
+	}
 	// Initialize minio client object.
 	minioClient, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
