@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"image/jpeg"
+	"io"
 	"log"
 	"time"
 
@@ -87,4 +88,12 @@ func (s *S3) GetBucket() string {
 
 func (s *S3) GetEndpoint() string {
 	return s.endpoint
+}
+
+func (s *S3) GetObject(ctx context.Context, bucketName, objectName string) (io.ReadCloser, error) {
+	o, err := s.client.GetObject(ctx, bucketName, objectName, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return o, nil
 }
