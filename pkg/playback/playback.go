@@ -1,15 +1,17 @@
 package playback
 
 import (
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
-	"github.com/icza/mjpeg"
+	"context"
 	"io"
-	"key-logger/pkg/loki"
-	"key-logger/pkg/s3"
-	"net/http"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
+
+	"key-logger/pkg/loki"
+	"key-logger/pkg/s3"
 )
 
 type playback struct {
@@ -31,14 +33,26 @@ func New(l log.Logger, s3 *s3.S3, loki *loki.Loki) *playback {
 	}
 }
 
-func (p *playback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (p *playback) Process() {
 
-	q := "{job=\"screencap\",thumbnail=\"\"} |= \"Explore\" | logfmt | line_format \"{{.loc}}\""
+	//q := "{job=\"screencap\",thumbnail=\"false\"} | logfmt | line_format \"{{.loc}}\""
+	//q := `{job="screencap",thumbnail="false"} |~ "GrafanaMozillaFirefox|GrafanaGoogleChrome" | logfmt | line_format "{{.loc}}"`
+	q := `{job="screencap",thumbnail="false"} |= "_hackathon202303sendlesssellmore" |="Ubuntu" | logfmt | line_format "{{.loc}}"`
 
-	resp := p.loki.Query(q, "1675573200000000000", "1677992399000000000", "5000", "FORWARD")
+	from, err := time.Parse(time.RFC3339, "2023-03-12T00:00:00-05:00")
+	if err != nil {
+		panic(err)
+	}
+
+	to, err := time.Parse(time.RFC3339, "2023-03-18T00:00:00-05:00")
+	if err != nil {
+		panic(err)
+	}
+
+	resp := p.loki.Query(q, from, to, 1000)
 	if resp == nil {
 		level.Error(p.logger).Log("msg", "loki query returned no results")
-		w.WriteHeader(http.StatusNoContent)
+		//w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
@@ -57,15 +71,15 @@ func (p *playback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	aw, err := mjpeg.New(time.Now().Format(time.RFC3339)+".avi", 200, 100, 6)
+	//aw, err := mjpeg.New(time.Now().Format(time.RFC3339)+".avi", 200, 100, 6)
 	if err != nil {
 		level.Error(p.logger).Log("msg", "failed to create image file writer", "err", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		//w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	for c, i := range images {
 		level.Info(p.logger).Log("msg", "downloading image", "count", c, "of", total, "image", i.object)
-		o, err := p.s3.GetObject(r.Context(), i.bucket, i.object)
+		o, err := p.s3.GetObject(context.Background(), i.bucket, i.object)
 		if err != nil {
 			o.Close()
 			level.Error(p.logger).Log("msg", "error getting object from s3", "err", err)
@@ -78,20 +92,21 @@ func (p *playback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			level.Error(p.logger).Log("msg", "failed to read image into byte slice", "err", err)
 			continue
 		}
-		err = aw.AddFrame(b)
-		if err != nil {
-			level.Error(p.logger).Log("msg", "failed to add image to video", "err", err)
-			continue
-		}
+		os.Stdout.Write(b)
+		//err = aw.AddFrame(b)
+		//if err != nil {
+		//	level.Error(p.logger).Log("msg", "failed to add image to video", "err", err)
+		//	continue
+		//}
 	}
-	err = aw.Close()
-	if err != nil {
-		level.Error(p.logger).Log("msg", "failed to finish video", "err", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
+	//err = aw.Close()
+	//if err != nil {
+	//	level.Error(p.logger).Log("msg", "failed to finish video", "err", err)
+	//	//w.WriteHeader(http.StatusInternalServerError)
+	//	return
+	//}
 
-	w.WriteHeader(http.StatusOK)
+	//w.WriteHeader(http.StatusOK)
 	return
 }
 

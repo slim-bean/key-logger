@@ -4,7 +4,6 @@ import (
 	"key-logger/pkg/loki"
 	"key-logger/pkg/playback"
 	"key-logger/pkg/s3"
-	"net/http"
 	"os"
 
 	"github.com/go-kit/log"
@@ -24,10 +23,12 @@ func main() {
 
 	p := playback.New(logger, s, l)
 
-	http.HandleFunc("/makevid", p.ServeHTTP)
+	//http.HandleFunc("/makevid", p.ServeHTTP)
 
-	if err := http.ListenAndServe(":9999", nil); err != nil {
+	//if err := http.ListenAndServe(":9999", nil); err != nil {
+	//
+	//}
 
-	}
+	p.Process()
 
 }
