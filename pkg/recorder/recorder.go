@@ -36,6 +36,17 @@ type Config struct {
 
 	// IdleTimeout is how long the system must be idle before capture pauses.
 	IdleTimeout time.Duration
+
+	// OutputMode controls where text log events are sent: "stdout" (default) or "loki".
+	OutputMode string
+
+	// Labels are key=value pairs attached to Loki log streams.
+	// Required when OutputMode is "loki".
+	Labels map[string]string
+
+	// Filters are compiled regexes. Any substring matching a filter is removed
+	// from string values before output (both stdout and Loki).
+	Filters []*regexp.Regexp
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -43,6 +54,7 @@ func DefaultConfig() Config {
 	return Config{
 		ScreencapInterval: 5 * time.Second,
 		IdleTimeout:       5 * time.Minute,
+		OutputMode:        "stdout",
 	}
 }
 
@@ -50,14 +62,15 @@ func DefaultConfig() Config {
 // It ties together the platform-specific implementations with the shared
 // logging, upload, and processing logic.
 type Recorder struct {
-	logger     log.Logger
-	config     Config
-	keyLogger  keylogger.KeyLogger
-	winTracker activewindow.Tracker
-	capturer   screencap.Capturer
-	s3         *s3.S3
-	lokiClient *loki.Client
-	cleanRegex *regexp.Regexp
+	logger       log.Logger
+	config       Config
+	keyLogger    keylogger.KeyLogger
+	winTracker   activewindow.Tracker
+	capturer     screencap.Capturer
+	s3           *s3.S3
+	lokiClient   *loki.Client
+	cleanRegex   *regexp.Regexp
+	outputLabels prom.LabelSet // labels for Loki output mode
 }
 
 // New creates a new Recorder. Any of the subsystems (keyLogger, winTracker,
@@ -75,15 +88,22 @@ func New(
 	if err != nil {
 		panic(err)
 	}
+
+	outputLabels := make(prom.LabelSet)
+	for k, v := range cfg.Labels {
+		outputLabels[prom.LabelName(k)] = prom.LabelValue(v)
+	}
+
 	return &Recorder{
-		logger:     logger,
-		config:     cfg,
-		keyLogger:  kl,
-		winTracker: wt,
-		capturer:   cap,
-		s3:         s3,
-		lokiClient: lokiClient,
-		cleanRegex: reg,
+		logger:       logger,
+		config:       cfg,
+		keyLogger:    kl,
+		winTracker:   wt,
+		capturer:     cap,
+		s3:           s3,
+		lokiClient:   lokiClient,
+		cleanRegex:   reg,
+		outputLabels: outputLabels,
 	}
 }
 
@@ -112,6 +132,49 @@ func (r *Recorder) Start() error {
 	return nil
 }
 
+// applyFilters removes any text matching the configured filter regexes from
+// all string values in the keyvals slice. Non-string values are left untouched.
+func (r *Recorder) applyFilters(keyvals []interface{}) []interface{} {
+	if len(r.config.Filters) == 0 {
+		return keyvals
+	}
+	result := make([]interface{}, len(keyvals))
+	copy(result, keyvals)
+	for i := 1; i < len(result); i += 2 {
+		if s, ok := result[i].(string); ok {
+			for _, f := range r.config.Filters {
+				s = f.ReplaceAllString(s, "")
+			}
+			result[i] = s
+		}
+	}
+	return result
+}
+
+// log writes a log entry to the configured output destination (stdout or Loki),
+// applying any configured filters first. The job parameter sets the "job" label
+// on Loki streams (e.g. "keylogger", "window").
+func (r *Recorder) log(ts time.Time, job string, keyvals ...interface{}) {
+	filtered := r.applyFilters(keyvals)
+
+	if r.config.OutputMode == "loki" && r.lokiClient != nil {
+		labels := r.outputLabels.Clone()
+		labels["job"] = prom.LabelValue(job)
+
+		var buf bytes.Buffer
+		enc := logfmt.NewEncoder(&buf)
+		if err := enc.EncodeKeyvals(filtered...); err != nil {
+			level.Error(r.logger).Log("msg", "failed to encode log line", "err", err)
+			return
+		}
+		if err := r.lokiClient.Handle(labels, ts, buf.String()); err != nil {
+			level.Error(r.logger).Log("msg", "failed to send to Loki", "err", err)
+		}
+	} else {
+		level.Info(r.logger).Log(filtered...)
+	}
+}
+
 // processKeyEvents reads from the key logger event channel, accumulates text,
 // and logs a key-event entry each time Enter is pressed.
 func (r *Recorder) processKeyEvents() {
@@ -133,8 +196,9 @@ func (r *Recorder) processKeyEvents() {
 				proc = info.Process
 			}
 
-			level.Info(r.logger).Log(
-				"ts", time.Now(),
+			now := time.Now()
+			r.log(now, "keylogger",
+				"ts", now,
 				"type", "key-event",
 				"window", winName,
 				"process", proc,
@@ -181,7 +245,7 @@ func (r *Recorder) captureLoop() {
 	if err != nil {
 		level.Error(r.logger).Log("msg", "could not get hostname", "err", err)
 	}
-	labels := prom.LabelSet{
+	thumbnailLabels := prom.LabelSet{
 		"host":      prom.LabelValue(host),
 		"job":       "screencap",
 		"thumbnail": "true",
@@ -214,19 +278,21 @@ func (r *Recorder) captureLoop() {
 					b64Str := base64.StdEncoding.EncodeToString(jpegBuff.Bytes())
 					imageLoc := fmt.Sprintf("%s/%s/%s", r.s3.GetEndpoint(), r.s3.GetBucket(), loc)
 
-					ts := time.Now()
+						ts := time.Now()
+					// Send thumbnail to Loki (uses dedicated thumbnail labels).
 					if r.lokiClient != nil {
 						lineBuff.Reset()
 						logfmtEncoder.Reset()
 						logfmtEncoder.EncodeKeyvals("ts", ts, "type", "screen-cap", "loc", imageLoc, "thumb", b64Str)
-						r.lokiClient.Handle(labels, ts, lineBuff.String())
+						r.lokiClient.Handle(thumbnailLabels, ts, lineBuff.String())
 					}
-					level.Info(r.logger).Log("ts", ts, "type", "screen-cap", "loc", imageLoc)
+					r.log(ts, "screencap", "ts", ts, "type", "screen-cap", "loc", imageLoc)
 				}
 			}
 
-			level.Info(r.logger).Log("ts", time.Now(), "type", "active-window",
-				"window", info.WindowName, "process", info.Process)
+			now := time.Now()
+		r.log(now, "window", "ts", now, "type", "active-window",
+			"window", info.WindowName, "process", info.Process)
 		}
 
 		// Adjust sleep to maintain consistent send interval.
