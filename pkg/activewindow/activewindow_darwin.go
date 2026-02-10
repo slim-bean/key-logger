@@ -11,91 +11,17 @@ package activewindow
 typedef struct {
 	int pid;
 	char appName[256];
-} FrontmostApp;
-
-static FrontmostApp getFrontmostApp(void) {
-	FrontmostApp app = {0};
-	@autoreleasepool {
-		NSRunningApplication *frontApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
-		if (frontApp) {
-			app.pid = frontApp.processIdentifier;
-			const char *name = [frontApp.localizedName UTF8String];
-			if (name) strncpy(app.appName, name, sizeof(app.appName) - 1);
-		}
-	}
-	return app;
-}
-
-typedef struct {
 	char windowName[512];
 	double x, y, w, h;
-	int found;       // 1 = found via AX, 2 = found via CGWindowList fallback
+	int found;
 } CWindowInfo;
 
-// getWindowViaAX uses the Accessibility API to get the focused window's
-// title and bounds. Requires Accessibility permission.
-static CWindowInfo getWindowViaAX(int targetPID) {
-	CWindowInfo info = {0};
-
-	AXUIElementRef appRef = AXUIElementCreateApplication(targetPID);
-	if (!appRef) return info;
-
-	AXUIElementRef windowRef = NULL;
-	AXError err = AXUIElementCopyAttributeValue(
-		appRef, kAXFocusedWindowAttribute, (CFTypeRef *)&windowRef);
-
-	if (err != kAXErrorSuccess || !windowRef) {
-		CFRelease(appRef);
-		return info;
-	}
-
-	// Get window title.
-	CFStringRef titleRef = NULL;
-	err = AXUIElementCopyAttributeValue(
-		windowRef, kAXTitleAttribute, (CFTypeRef *)&titleRef);
-	if (err == kAXErrorSuccess && titleRef) {
-		CFStringGetCString(titleRef, info.windowName,
-			sizeof(info.windowName), kCFStringEncodingUTF8);
-		CFRelease(titleRef);
-	}
-
-	// Get window position.
-	AXValueRef posRef = NULL;
-	CGPoint pos = {0, 0};
-	err = AXUIElementCopyAttributeValue(
-		windowRef, kAXPositionAttribute, (CFTypeRef *)&posRef);
-	if (err == kAXErrorSuccess && posRef) {
-		AXValueGetValue(posRef, kAXValueCGPointType, &pos);
-		CFRelease(posRef);
-	}
-
-	// Get window size.
-	AXValueRef sizeRef = NULL;
-	CGSize size = {0, 0};
-	err = AXUIElementCopyAttributeValue(
-		windowRef, kAXSizeAttribute, (CFTypeRef *)&sizeRef);
-	if (err == kAXErrorSuccess && sizeRef) {
-		AXValueGetValue(sizeRef, kAXValueCGSizeType, &size);
-		CFRelease(sizeRef);
-	}
-
-	info.x = pos.x;
-	info.y = pos.y;
-	info.w = size.width;
-	info.h = size.height;
-	info.found = 1;
-
-	CFRelease(windowRef);
-	CFRelease(appRef);
-	return info;
-}
-
-// getWindowBoundsViaCGWindowList uses CGWindowListCopyWindowInfo as a
-// fallback to get window bounds when the Accessibility API is not available.
-// This does NOT require Accessibility or Screen Recording permission for bounds,
-// but cannot retrieve window titles without Screen Recording permission.
-// It finds the largest normal-layer window for the given PID.
-static CWindowInfo getWindowBoundsViaCGWindowList(int targetPID) {
+// getFrontmostWindow queries CGWindowList (which always returns live state
+// from the window server) to find the frontmost normal application window.
+// Windows are returned in Z-order (front to back), so the first large,
+// normal-layer window belongs to the active application.
+// This does NOT require NSWorkspace or an event loop.
+static CWindowInfo getFrontmostWindow(void) {
 	CWindowInfo info = {0};
 	CFArrayRef list = CGWindowListCopyWindowInfo(
 		kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
@@ -103,53 +29,85 @@ static CWindowInfo getWindowBoundsViaCGWindowList(int targetPID) {
 	);
 	if (!list) return info;
 
-	double bestArea = 0;
 	CFIndex count = CFArrayGetCount(list);
 	for (CFIndex i = 0; i < count; i++) {
 		CFDictionaryRef win = (CFDictionaryRef)CFArrayGetValueAtIndex(list, i);
 
-		CFNumberRef pidRef = (CFNumberRef)CFDictionaryGetValue(win, kCGWindowOwnerPID);
-		if (!pidRef) continue;
-		int pid = 0;
-		CFNumberGetValue(pidRef, kCFNumberIntType, &pid);
-		if (pid != targetPID) continue;
-
+		// Only consider normal-layer windows (layer 0).
 		CFNumberRef layerRef = (CFNumberRef)CFDictionaryGetValue(win, kCGWindowLayer);
-		if (layerRef) {
-			int layer = -1;
-			CFNumberGetValue(layerRef, kCFNumberIntType, &layer);
-			if (layer != 0) continue;
-		}
+		if (!layerRef) continue;
+		int layer = -1;
+		CFNumberGetValue(layerRef, kCFNumberIntType, &layer);
+		if (layer != 0) continue;
 
+		// Get window bounds.
 		CFDictionaryRef boundsRef = (CFDictionaryRef)CFDictionaryGetValue(win, kCGWindowBounds);
 		if (!boundsRef) continue;
-
 		CGRect rect;
 		CGRectMakeWithDictionaryRepresentation(boundsRef, &rect);
 
-		// Skip tiny windows (menu bar items, status icons, etc.)
+		// Skip tiny windows (menu bar items, status icons, toolbars, etc.)
 		if (rect.size.width < 50 || rect.size.height < 50) continue;
 
-		double area = rect.size.width * rect.size.height;
-		if (area > bestArea) {
-			bestArea = area;
-			info.x = rect.origin.x;
-			info.y = rect.origin.y;
-			info.w = rect.size.width;
-			info.h = rect.size.height;
-			info.found = 2;
-
-			// Try to get window name (only works with Screen Recording permission).
-			CFStringRef nameRef = (CFStringRef)CFDictionaryGetValue(win, kCGWindowName);
-			if (nameRef) {
-				CFStringGetCString(nameRef, info.windowName,
-					sizeof(info.windowName), kCFStringEncodingUTF8);
-			}
+		// This is the frontmost real window. Extract info.
+		CFNumberRef pidRef = (CFNumberRef)CFDictionaryGetValue(win, kCGWindowOwnerPID);
+		if (pidRef) {
+			CFNumberGetValue(pidRef, kCFNumberIntType, &info.pid);
 		}
+
+		CFStringRef ownerRef = (CFStringRef)CFDictionaryGetValue(win, kCGWindowOwnerName);
+		if (ownerRef) {
+			CFStringGetCString(ownerRef, info.appName,
+				sizeof(info.appName), kCFStringEncodingUTF8);
+		}
+
+		// kCGWindowName requires Screen Recording permission; may be NULL.
+		CFStringRef nameRef = (CFStringRef)CFDictionaryGetValue(win, kCGWindowName);
+		if (nameRef) {
+			CFStringGetCString(nameRef, info.windowName,
+				sizeof(info.windowName), kCFStringEncodingUTF8);
+		}
+
+		info.x = rect.origin.x;
+		info.y = rect.origin.y;
+		info.w = rect.size.width;
+		info.h = rect.size.height;
+		info.found = 1;
+		break;
 	}
 
 	CFRelease(list);
 	return info;
+}
+
+// getWindowTitleViaAX uses the Accessibility API to get the focused window's
+// title. Returns 1 if successful, 0 otherwise. Requires Accessibility permission.
+static int getWindowTitleViaAX(int targetPID, char *outTitle, int maxLen) {
+	AXUIElementRef appRef = AXUIElementCreateApplication(targetPID);
+	if (!appRef) return 0;
+
+	AXUIElementRef windowRef = NULL;
+	AXError err = AXUIElementCopyAttributeValue(
+		appRef, kAXFocusedWindowAttribute, (CFTypeRef *)&windowRef);
+
+	if (err != kAXErrorSuccess || !windowRef) {
+		CFRelease(appRef);
+		return 0;
+	}
+
+	int result = 0;
+	CFStringRef titleRef = NULL;
+	err = AXUIElementCopyAttributeValue(
+		windowRef, kAXTitleAttribute, (CFTypeRef *)&titleRef);
+	if (err == kAXErrorSuccess && titleRef) {
+		CFStringGetCString(titleRef, outTitle, maxLen, kCFStringEncodingUTF8);
+		CFRelease(titleRef);
+		result = 1;
+	}
+
+	CFRelease(windowRef);
+	CFRelease(appRef);
+	return result;
 }
 
 static int isAccessibilityTrusted(void) {
@@ -170,6 +128,7 @@ import (
 	"image"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
@@ -180,16 +139,17 @@ type darwinTracker struct {
 	mtx    sync.Mutex
 	info   Info
 	idle   time.Duration
+	axOK   bool // whether Accessibility permission is available
 }
 
-// New creates a new Tracker for macOS using the Accessibility API
-// with a CGWindowList fallback for bounds.
+// New creates a new Tracker for macOS.
 func New(logger log.Logger) Tracker {
 	return &darwinTracker{logger: logger}
 }
 
 func (t *darwinTracker) Start() error {
-	if C.isAccessibilityTrusted() == 0 {
+	t.axOK = C.isAccessibilityTrusted() != 0
+	if !t.axOK {
 		level.Warn(t.logger).Log("msg",
 			"Accessibility permission not granted; window titles will show app name only. "+
 				"Grant permission in System Settings > Privacy & Security > Accessibility.")
@@ -215,41 +175,42 @@ func (t *darwinTracker) Stop() error {
 }
 
 func (t *darwinTracker) pollLoop() {
+	// Re-check AX permission periodically in case the user grants it at runtime.
+	axCheckCounter := 0
+
 	for {
-		app := C.getFrontmostApp()
+		// CGWindowList always returns live data from the window server.
+		winfo := C.getFrontmostWindow()
 
 		var info Info
-		if app.pid > 0 {
-			appName := C.GoString(&app.appName[0])
+		if winfo.found != 0 {
+			appName := C.GoString(&winfo.appName[0])
+			winTitle := C.GoString(&winfo.windowName[0])
 
-			// Try Accessibility API first (best results: title + bounds).
-			winfo := C.getWindowViaAX(app.pid)
-
-			if winfo.found == 0 {
-				// AX failed; fall back to CGWindowList for bounds.
-				winfo = C.getWindowBoundsViaCGWindowList(app.pid)
+			// Try Accessibility API for window title (more reliable, works
+			// without Screen Recording permission).
+			if t.axOK {
+				var axTitle [512]C.char
+				if C.getWindowTitleViaAX(winfo.pid, &axTitle[0], 512) != 0 {
+					axStr := C.GoString(&axTitle[0])
+					if axStr != "" {
+						winTitle = axStr
+					}
+				}
 			}
 
-			if winfo.found != 0 {
-				winName := C.GoString(&winfo.windowName[0])
-				if winName == "" {
-					winName = appName
-				} else {
-					winName = fmt.Sprintf("%s - %s", winName, appName)
-				}
-				info = Info{
-					WindowName: winName,
-					Process:    appName,
-					Bounds: image.Rect(
-						int(winfo.x), int(winfo.y),
-						int(winfo.x+winfo.w), int(winfo.y+winfo.h),
-					),
-				}
-			} else {
-				info = Info{
-					WindowName: appName,
-					Process:    appName,
-				}
+			displayName := appName
+			if winTitle != "" {
+				displayName = fmt.Sprintf("%s - %s", winTitle, appName)
+			}
+
+			info = Info{
+				WindowName: displayName,
+				Process:    appName,
+				Bounds: image.Rect(
+					int(winfo.x), int(winfo.y),
+					int(winfo.x+winfo.w), int(winfo.y+winfo.h),
+				),
 			}
 		}
 
@@ -261,6 +222,18 @@ func (t *darwinTracker) pollLoop() {
 		t.idle = idle
 		t.mtx.Unlock()
 
+		// Re-check Accessibility permission every ~30s (60 iterations * 500ms).
+		axCheckCounter++
+		if !t.axOK && axCheckCounter%60 == 0 {
+			t.axOK = C.isAccessibilityTrusted() != 0
+			if t.axOK {
+				level.Info(t.logger).Log("msg", "Accessibility permission granted; window titles now available")
+			}
+		}
+
 		time.Sleep(500 * time.Millisecond)
 	}
 }
+
+// Ensure unsafe is used (needed for potential future use with C pointers).
+var _ = unsafe.Pointer(nil)
