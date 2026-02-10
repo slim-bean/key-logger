@@ -22,14 +22,30 @@ Output goes to stdout as logfmt. Can be piped to any log collector.
 ### Direct to Loki
 
 Use `--output=loki` to send log events directly to Loki. At least one `--label` is required.
+All events are written to a disk-backed WAL buffer first, then sent by a background
+goroutine. This means data survives process restarts and network outages.
 
 ```
 ./key-logger \
   --output=loki \
   --client.url=http://localhost:3100/loki/api/v1/push \
-  --label job=keylogger \
   --label host=myhost
 ```
+
+The `job` label is set automatically per event type: `keylogger` for keystroke
+events, `window` for active window events, and `screencap` for screenshot metadata.
+
+#### Disk buffer
+
+When `--output=loki` is active, entries are buffered in segment files on disk
+(default `~/.key-logger/buffer/`). A background sender reads segments and pushes
+to Loki via the HTTP push API. If Loki is unreachable, entries accumulate on disk
+and are replayed when connectivity returns.
+
+- On **429** (rate limited): respects `Retry-After` header, otherwise exponential backoff (1s to 5m)
+- On **5xx / network errors**: exponential backoff with jitter
+- On process restart: resumes from saved cursor position (no duplicate sends)
+- Buffer size is capped (default 100MB); oldest segments are dropped when exceeded
 
 ### Filters
 
@@ -82,6 +98,9 @@ Individual subsystems can be enabled/disabled:
 | `--label` | | Label as `key=value` for Loki (repeatable, required with `--output=loki`) |
 | `--filter` | | Regex filter to remove matching text (repeatable) |
 | `--client.url` | | Loki push endpoint (required with `--output=loki`) |
+| `--client.tenant-id` | | Loki tenant ID (for multi-tenant setups) |
+| `--buffer-dir` | `~/.key-logger/buffer/` | Directory for WAL buffer files |
+| `--buffer-max-mb` | `100` | Maximum buffer size in megabytes |
 | `--enable-keylogger` | `true` | Enable keystroke logging |
 | `--enable-window-tracker` | `true` | Enable active window tracking |
 | `--enable-screencap` | `true` | Enable screenshot capture |

@@ -19,6 +19,7 @@ import (
 	"golang.org/x/image/draw"
 
 	"key-logger/pkg/activewindow"
+	"key-logger/pkg/buffer"
 	"key-logger/pkg/keylogger"
 	"key-logger/pkg/model"
 	"key-logger/pkg/s3"
@@ -62,19 +63,21 @@ func DefaultConfig() Config {
 // It ties together the platform-specific implementations with the shared
 // logging, upload, and processing logic.
 type Recorder struct {
-	logger       log.Logger
-	config       Config
-	keyLogger    keylogger.KeyLogger
-	winTracker   activewindow.Tracker
-	capturer     screencap.Capturer
-	s3           *s3.S3
-	lokiClient   *loki.Client
-	cleanRegex   *regexp.Regexp
-	outputLabels prom.LabelSet // labels for Loki output mode
+	logger     log.Logger
+	config     Config
+	keyLogger  keylogger.KeyLogger
+	winTracker activewindow.Tracker
+	capturer   screencap.Capturer
+	s3         *s3.S3
+	lokiClient *loki.Client
+	cleanRegex *regexp.Regexp
+	wal        *buffer.WAL // disk-backed buffer for Loki output
 }
 
 // New creates a new Recorder. Any of the subsystems (keyLogger, winTracker,
-// capturer, s3, lokiClient) may be nil to disable that functionality.
+// capturer, s3, lokiClient, wal) may be nil to disable that functionality.
+// The WAL is used for disk-backed Loki output; lokiClient is kept for
+// best-effort thumbnail uploads.
 func New(
 	logger log.Logger,
 	cfg Config,
@@ -83,27 +86,23 @@ func New(
 	cap screencap.Capturer,
 	s3 *s3.S3,
 	lokiClient *loki.Client,
+	wal *buffer.WAL,
 ) *Recorder {
 	reg, err := regexp.Compile("[^a-zA-Z0-9]+")
 	if err != nil {
 		panic(err)
 	}
 
-	outputLabels := make(prom.LabelSet)
-	for k, v := range cfg.Labels {
-		outputLabels[prom.LabelName(k)] = prom.LabelValue(v)
-	}
-
 	return &Recorder{
-		logger:       logger,
-		config:       cfg,
-		keyLogger:    kl,
-		winTracker:   wt,
-		capturer:     cap,
-		s3:           s3,
-		lokiClient:   lokiClient,
-		cleanRegex:   reg,
-		outputLabels: outputLabels,
+		logger:     logger,
+		config:     cfg,
+		keyLogger:  kl,
+		winTracker: wt,
+		capturer:   cap,
+		s3:         s3,
+		lokiClient: lokiClient,
+		cleanRegex: reg,
+		wal:        wal,
 	}
 }
 
@@ -157,9 +156,13 @@ func (r *Recorder) applyFilters(keyvals []interface{}) []interface{} {
 func (r *Recorder) log(ts time.Time, job string, keyvals ...interface{}) {
 	filtered := r.applyFilters(keyvals)
 
-	if r.config.OutputMode == "loki" && r.lokiClient != nil {
-		labels := r.outputLabels.Clone()
-		labels["job"] = prom.LabelValue(job)
+	if r.config.OutputMode == "loki" && r.wal != nil {
+		// Build the label set: user labels + per-event job.
+		labels := make(map[string]string, len(r.config.Labels)+1)
+		for k, v := range r.config.Labels {
+			labels[k] = v
+		}
+		labels["job"] = job
 
 		var buf bytes.Buffer
 		enc := logfmt.NewEncoder(&buf)
@@ -167,8 +170,14 @@ func (r *Recorder) log(ts time.Time, job string, keyvals ...interface{}) {
 			level.Error(r.logger).Log("msg", "failed to encode log line", "err", err)
 			return
 		}
-		if err := r.lokiClient.Handle(labels, ts, buf.String()); err != nil {
-			level.Error(r.logger).Log("msg", "failed to send to Loki", "err", err)
+
+		entry := buffer.Entry{
+			Ts:     ts.UnixNano(),
+			Labels: labels,
+			Line:   buf.String(),
+		}
+		if err := r.wal.Append(entry); err != nil {
+			level.Error(r.logger).Log("msg", "failed to write to WAL", "err", err)
 		}
 	} else {
 		level.Info(r.logger).Log(filtered...)
