@@ -9,6 +9,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/go-kit/kit/log"
 	"github.com/gonutz/w32/v2"
 )
 
@@ -28,7 +29,7 @@ type windowsTracker struct {
 }
 
 // New creates a new Tracker for Windows.
-func New() Tracker {
+func New(_ log.Logger) Tracker {
 	return &windowsTracker{}
 }
 

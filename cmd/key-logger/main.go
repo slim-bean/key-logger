@@ -59,7 +59,7 @@ func main() {
 
 	var wt activewindow.Tracker
 	if *enableWindowTracker {
-		wt = activewindow.New()
+		wt = activewindow.New(logger)
 		level.Info(logger).Log("msg", "window tracker enabled")
 	} else {
 		level.Info(logger).Log("msg", "window tracker disabled")

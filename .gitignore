@@ -1,7 +1,8 @@
 .idea/
 cmd/key-logger/key-logger
-key-logger
-playback
+/key-logger
+/playback
+/debug-window
 out/
 *.exe
 klog.bat
