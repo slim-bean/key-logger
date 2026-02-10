@@ -29,11 +29,29 @@ var (
 	eightyFivePercent = jpeg.Options{Quality: 85}
 )
 
+// Config holds tuning parameters for the recorder's behavior.
+type Config struct {
+	// ScreencapInterval is how often to capture screenshots and log window info.
+	ScreencapInterval time.Duration
+
+	// IdleTimeout is how long the system must be idle before capture pauses.
+	IdleTimeout time.Duration
+}
+
+// DefaultConfig returns a Config with sensible defaults.
+func DefaultConfig() Config {
+	return Config{
+		ScreencapInterval: 5 * time.Second,
+		IdleTimeout:       5 * time.Minute,
+	}
+}
+
 // Recorder orchestrates key logging, active window tracking, and screen capture.
 // It ties together the platform-specific implementations with the shared
 // logging, upload, and processing logic.
 type Recorder struct {
 	logger     log.Logger
+	config     Config
 	keyLogger  keylogger.KeyLogger
 	winTracker activewindow.Tracker
 	capturer   screencap.Capturer
@@ -46,6 +64,7 @@ type Recorder struct {
 // capturer, s3, lokiClient) may be nil to disable that functionality.
 func New(
 	logger log.Logger,
+	cfg Config,
 	kl keylogger.KeyLogger,
 	wt activewindow.Tracker,
 	cap screencap.Capturer,
@@ -58,6 +77,7 @@ func New(
 	}
 	return &Recorder{
 		logger:     logger,
+		config:     cfg,
 		keyLogger:  kl,
 		winTracker: wt,
 		capturer:   cap,
@@ -151,8 +171,8 @@ func (r *Recorder) processKeyEvents() {
 // captureLoop periodically captures the active window screenshot, uploads it
 // to S3, sends a thumbnail to Loki, and logs the active window info.
 func (r *Recorder) captureLoop() {
-	sendInterval := 5 * time.Second
-	idleTimeout := 5 * time.Minute
+	sendInterval := r.config.ScreencapInterval
+	idleTimeout := r.config.IdleTimeout
 	jpegBuff := &bytes.Buffer{}
 	lineBuff := &bytes.Buffer{}
 	logfmtEncoder := logfmt.NewEncoder(lineBuff)
