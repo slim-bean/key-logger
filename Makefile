@@ -9,6 +9,7 @@ PLIST_DEST   := $(HOME)/Library/LaunchAgents/$(PLIST_LOCAL)
 
 build:
 	go build -o $(BINARY) ./cmd/key-logger/
+	codesign --sign - --force --identifier $(PLIST_LABEL) $(BINARY)
 
 config:
 	@if [ ! -f $(PLIST_LOCAL) ]; then \
@@ -25,13 +26,29 @@ install: build config
 		echo "Edit the file and replace them before installing."; \
 		exit 1; \
 	fi
-	sudo cp $(BINARY) $(INSTALL_DIR)/$(BINARY)
-	mkdir -p $(HOME)/Library/LaunchAgents
-	cp $(PLIST_LOCAL) $(PLIST_DEST)
-	launchctl bootout gui/$$(id -u) $(PLIST_DEST) 2>/dev/null || true
-	launchctl bootstrap gui/$$(id -u) $(PLIST_DEST)
-	@echo "Installed and started $(PLIST_LABEL)."
-	@echo "Remember to grant Accessibility and Screen Recording permissions to $(INSTALL_DIR)/$(BINARY)."
+	@UPGRADING=false; \
+	if [ -f $(INSTALL_DIR)/$(BINARY) ]; then \
+		UPGRADING=true; \
+	fi; \
+	sudo cp $(BINARY) $(INSTALL_DIR)/$(BINARY); \
+	mkdir -p $(HOME)/Library/LaunchAgents; \
+	cp $(PLIST_LOCAL) $(PLIST_DEST); \
+	launchctl bootout gui/$$(id -u) $(PLIST_DEST) 2>/dev/null || true; \
+	launchctl bootstrap gui/$$(id -u) $(PLIST_DEST); \
+	echo "Installed and started $(PLIST_LABEL)."; \
+	if [ "$$UPGRADING" = true ]; then \
+		echo ""; \
+		echo "NOTE: The binary was replaced. macOS may invalidate permissions even though"; \
+		echo "System Settings still shows them as enabled. If the service fails to start:"; \
+		echo "  1. Open System Settings > Privacy & Security"; \
+		echo "  2. For both Accessibility and Screen Recording:"; \
+		echo "     - Remove $(INSTALL_DIR)/$(BINARY) (click the minus button)"; \
+		echo "     - Re-add it (click plus, navigate to $(INSTALL_DIR)/$(BINARY))"; \
+		echo "  3. Run: make restart"; \
+	else \
+		echo "Grant Accessibility and Screen Recording permissions to $(INSTALL_DIR)/$(BINARY)"; \
+		echo "in System Settings > Privacy & Security."; \
+	fi
 
 uninstall:
 	launchctl bootout gui/$$(id -u) $(PLIST_DEST) 2>/dev/null || true
