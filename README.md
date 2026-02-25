@@ -28,7 +28,7 @@ goroutine. This means data survives process restarts and network outages.
 ```
 ./key-logger \
   --output=loki \
-  --client.url=http://localhost:3100/loki/api/v1/push \
+  --client.url=http://localhost:3100 \
   --label host=myhost
 ```
 
@@ -55,7 +55,7 @@ applied to all string values. Filters work with both stdout and Loki output.
 ```
 ./key-logger \
   --output=loki \
-  --client.url=http://localhost:3100/loki/api/v1/push \
+  --client.url=http://localhost:3100 \
   --label job=keylogger \
   --label host=myhost \
   --filter "(?i)password" \
@@ -97,7 +97,7 @@ Individual subsystems can be enabled/disabled:
 | `--output` | `stdout` | Output destination: `stdout` or `loki` |
 | `--label` | | Label as `key=value` for Loki (repeatable, required with `--output=loki`) |
 | `--filter` | | Regex filter to remove matching text (repeatable) |
-| `--client.url` | | Loki push endpoint (required with `--output=loki`) |
+| `--client.url` | | Loki base URL, e.g. `http://localhost:3100` (`/loki/api/v1/push` is appended automatically) |
 | `--client.tenant-id` | | Loki tenant ID (for multi-tenant setups) |
 | `--buffer-dir` | `~/.key-logger/buffer/` | Directory for WAL buffer files |
 | `--buffer-max-mb` | `100` | Maximum buffer size in megabytes |

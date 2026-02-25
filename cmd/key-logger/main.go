@@ -70,6 +70,14 @@ func main() {
 
 	flag.Parse()
 
+	// Normalize Loki URL: append the push path if user provided just the base.
+	if lokiCfg.URL.URL != nil {
+		p := strings.TrimRight(lokiCfg.URL.Path, "/")
+		if !strings.HasSuffix(p, "/loki/api/v1/push") {
+			lokiCfg.URL.Path = p + "/loki/api/v1/push"
+		}
+	}
+
 	// Validate output mode.
 	if *outputMode != "stdout" && *outputMode != "loki" {
 		fmt.Fprintf(os.Stderr, "invalid --output value %q: must be stdout or loki\n", *outputMode)

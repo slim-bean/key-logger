@@ -11,7 +11,8 @@
         <string>/usr/local/bin/key-logger</string>
         <string>--output=loki</string>
 
-        <!-- Replace with your Loki push endpoint -->
+        <!-- Replace with your Loki base URL (e.g. http://localhost:3100)
+             The /loki/api/v1/push path is appended automatically. -->
         <string>--client.url=LOKI_URL</string>
 
         <!-- Labels: each --label takes a key=value pair. Add as many as you need.
