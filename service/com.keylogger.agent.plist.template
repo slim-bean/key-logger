@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.keylogger.agent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/key-logger</string>
+        <string>--output=loki</string>
+
+        <!-- Replace with your Loki push endpoint -->
+        <string>--client.url=LOKI_URL</string>
+
+        <!-- Labels: each --label takes a key=value pair. Add as many as you need.
+             The "job" label is set automatically per event type (keylogger/window/screencap). -->
+        <string>--label</string>
+        <string>host=HOSTNAME</string>
+        <!-- <string>--label</string> -->
+        <!-- <string>env=production</string> -->
+
+        <!-- Filters: regex patterns to strip sensitive text from all output.
+             Each --filter is a Go regex applied to every string value.
+             <string>--filter</string>
+             <string>(?i)password</string>
+             <string>--filter</string>
+             <string>(?i)secret</string> -->
+
+        <!-- Feature toggles: disable individual subsystems. -->
+        <!-- <string>--enable-keylogger=false</string> -->
+        <!-- <string>--enable-window-tracker=false</string> -->
+        <!-- <string>--enable-screencap=false</string> -->
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/key-logger.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/key-logger.stderr.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

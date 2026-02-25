@@ -111,9 +111,61 @@ Individual subsystems can be enabled/disabled:
 | `--accessKey` | | S3 access key |
 | `--secretKey` | | S3 secret key |
 
+## Running as a macOS service
+
+The project includes a launchd LaunchAgent setup so key-logger starts automatically
+on login, restarts on crash, and runs in the background.
+
+### Quick start
+
+```
+make config       # creates local plist from template (first time only)
+# edit com.keylogger.agent.plist — fill in your Loki URL, hostname, etc.
+make install      # builds, installs binary to /usr/local/bin, loads the service
+```
+
+### Setup details
+
+1. **`make config`** copies `service/com.keylogger.agent.plist.template` to
+   `com.keylogger.agent.plist` if the local copy doesn't exist. The local copy
+   is gitignored so your credentials and machine-specific config stay out of version control.
+
+2. **Edit `com.keylogger.agent.plist`** and replace the placeholder values
+   (`LOKI_URL`, `HOSTNAME`) with your real configuration. Add any extra flags
+   (filters, S3 credentials, feature toggles) as additional `<string>` entries
+   inside the `ProgramArguments` array.
+
+3. **`make install`** builds the binary, copies it to `/usr/local/bin/key-logger`,
+   installs the plist to `~/Library/LaunchAgents/`, and loads the service.
+   It will refuse to install if placeholder values are still present.
+
+### Managing the service
+
+```
+make start        # start the service
+make stop         # stop the service
+make restart      # stop + start
+make status       # print service status
+make logs         # tail stdout/stderr logs
+make uninstall    # stop service, remove plist and binary
+```
+
+### Logs
+
+stdout and stderr are written to `/tmp/key-logger.stdout.log` and
+`/tmp/key-logger.stderr.log`. These are cleared on reboot. Change the paths
+in your local plist if you want persistent logs (e.g. `~/.key-logger/`).
+
+When using `--output=loki`, the primary data goes to Loki; these files are
+mainly useful for debugging startup issues.
+
 ## macOS permissions
 
 On macOS the following permissions are needed (grant in System Settings > Privacy & Security):
 
 - **Accessibility**: Required for keystroke logging and window title detection
 - **Screen Recording**: Required for screenshot capture and window name fallback via CGWindowList
+
+After installing the service, grant these permissions to `/usr/local/bin/key-logger`.
+If you rebuild and reinstall the binary, macOS may revoke permissions and you'll need
+to re-grant them.
