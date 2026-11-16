@@ -9,6 +9,18 @@ A key logger which outputs to a Loki-friendly logfmt format. Supports Windows an
 go build -o key-logger ./cmd/key-logger/
 ```
 
+## Tests
+
+Run synthetic Loki parsing and playback checks without starting capture or services:
+
+```bash
+go test -mod=vendor -race ./pkg/loki/loghttp ./pkg/playback ./pkg/buffer
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -mod=vendor -o key-logger.exe ./cmd/key-logger
+```
+
+The cross-build does not validate Windows runtime capture. macOS native capture
+requires separate testing on macOS. Dependency changes must regenerate `vendor/`.
+
 ## Usage
 
 ### Stdout (default)
