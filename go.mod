@@ -5,8 +5,8 @@ go 1.21
 require (
 	github.com/buger/jsonparser v1.6.1
 	github.com/go-kit/kit v0.10.0
-	github.com/go-kit/log v0.2.0
-	github.com/go-logfmt/logfmt v0.5.1
+	github.com/go-kit/log v0.2.1
+	github.com/go-logfmt/logfmt v0.6.1
 	github.com/gonutz/w32/v2 v2.2.0
 	github.com/grafana/loki-client-go v0.0.0-20230116142646-e7494d0ef70c
 	github.com/json-iterator/go v1.1.12
@@ -29,7 +29,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/uuid v1.2.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/grafana/regexp v0.0.0-20220304095617-2e8d9baf4ac2 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/klauspost/cpuid v1.3.1 // indirect

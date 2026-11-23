@@ -29,12 +29,12 @@ github.com/gen2brain/shm
 ## explicit; go 1.13
 github.com/go-kit/kit/log
 github.com/go-kit/kit/log/level
-# github.com/go-kit/log v0.2.0
+# github.com/go-kit/log v0.2.1
 ## explicit; go 1.17
 github.com/go-kit/log
 github.com/go-kit/log/level
-# github.com/go-logfmt/logfmt v0.5.1
-## explicit; go 1.17
+# github.com/go-logfmt/logfmt v0.6.1
+## explicit; go 1.21
 github.com/go-logfmt/logfmt
 # github.com/gogo/protobuf v1.3.2
 ## explicit; go 1.15
@@ -56,7 +56,7 @@ github.com/golang/snappy
 # github.com/gonutz/w32/v2 v2.2.0
 ## explicit; go 1.11
 github.com/gonutz/w32/v2
-# github.com/google/uuid v1.2.0
+# github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
 # github.com/grafana/loki-client-go v0.0.0-20230116142646-e7494d0ef70c
