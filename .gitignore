@@ -8,3 +8,4 @@ out/
 klog.bat
 promtail-config.yaml
 com.keylogger.agent.plist
+*.mp4
